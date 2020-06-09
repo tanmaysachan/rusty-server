@@ -1,14 +1,15 @@
-use std::thread;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::worker::Signal;
+use crate::worker::WorkerThread;
+
 pub struct ThreadPool {
     threads: Vec<WorkerThread>,
-    sender: mpsc::Sender<Job>,
+    sender: mpsc::Sender<Signal>,
 }
 
-type Job = Box<dyn FnOnce() + Send + 'static>;
 
 impl ThreadPool {
     pub fn new(mut size: usize) -> ThreadPool {
@@ -39,28 +40,27 @@ impl ThreadPool {
     where
         T: FnOnce() + Send + 'static,
     {
-        let job = Box::new(t);
-        self.sender.send(job).unwrap();
+        let signal = Signal::RUN(Box::new(t));
+        if let Err(e) = self.sender.send(signal) {
+            eprintln!("Channel error: {}", e);
+        }
     }
 }
 
-struct WorkerThread {
-    id: usize,
-    thread: thread::JoinHandle<()>,
-}
-
-impl WorkerThread {
-    fn new(i: usize, r: Arc<Mutex<mpsc::Receiver<Job>>>) -> WorkerThread {
-        let thread = thread::spawn( move || {
-            while let Ok(job) = r.lock().unwrap().recv() {
-                println!("Thread {} working...", i);
-                job();
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        for _ in &self.threads {
+            if let Err(e) = self.sender.send(Signal::TERM) {
+                eprintln!("ThreadPool error: {}", e)
             }
-        });
-
-        WorkerThread {
-            id: i,
-            thread: thread,
+        }
+        for worker in &mut self.threads {
+            println!("Shutting down thread {}...", worker.id);
+            if let Some(thread) = worker.thread.take() {
+                if let Ok(_) = thread.join() {
+                    println!("Shutdown thread {}", worker.id);
+                }
+            }
         }
     }
 }
