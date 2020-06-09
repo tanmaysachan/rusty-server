@@ -1,0 +1,11 @@
+name: http-server
+version: "1.0"
+author: Tanmay Sachan
+about: Simple multithreaded http server
+args:
+    - port:
+        short: p
+        long: port
+        value_name: PORT
+        about: Sets the port on localhost for running the server
+        takes_value: true
